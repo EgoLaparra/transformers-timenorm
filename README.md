@@ -1,28 +1,6 @@
-## Get and prepare data
+# Transformers timenorm
 
-### Practice Data
-
-The trial data for the practice phase consists of 14 articles from the _AQUAINT_ and _TimeBank_ subsets of  _TempEval-2013_, i.e. _"Newswire"_ domain. For each documents, there is a file ending in _"TimeNorm.gold.completed.xml"_ that contains the annotated temporal expressions following the Anafora schema.
-
-You can download the annotations for this phase [**here**](https://github.com/Machine-Learning-for-Medical-Language/source-free-domain-adaptation/tree/master/practice_data/time).
-
-To get the plain text corresponding to the annotations you need to install [**anaforatools**](https://pypi.org/project/anaforatools/).
-
-The following command will copy the plain text file in each document directory:
-
-    python -m anafora.copy_text --format=timeml /path/to/TBAQ-cleaned/ /paht/to/anafora-annotation/TempEval-2013/
-
-Where:
-
--   _TempEval-2013_ is the directory with the annotated documents
--   _TBAQ-cleaned_ is the directory you get when you unzip [http://www.cs.york.ac.uk/semeval-2013/task1/data/uploads/datasets/tbaq-2013-03.zip](http://www.cs.york.ac.uk/semeval-2013/task1/data/uploads/datasets/tbaq-2013-03.zip)
-
-To make a submission for this phase, you must include the output for the 14 documents following the structure explained in the **Data and Evaluation** section.
-
-## Usage
-
-
-The first time you run the baseline, the pre-trained model, `clulab/roberta-timex-semeval`, will be automatically downloaded in your computer. If you want to produce some predictions with this model, you need to pass as arguments the directory containing the input text and the target directory where the predictions will be stored. For example, to process the _AQUAINT_ subset from _TempEval-2013_, just run:
+The first time you run the code, the pre-trained model, `clulab/roberta-timex-semeval`, will be automatically downloaded in your computer. If you want to produce some predictions with this model, you need to pass as arguments the directory containing the input text and the target directory where the predictions will be stored. For example, to process the _AQUAINT_ subset from _TempEval-2013_, just run:
 
     python run_time.py -p /paht/to/anafora-annotation/TempEval-2013/AQUAINT -o /path/to/output/AQUAINT [--no_cuda]
 
