@@ -3,6 +3,8 @@ from transformers import (
     AutoConfig,
     AutoTokenizer,
     AutoModelForTokenClassification,
+    AutoModelForMaskedLM,
+    DataCollatorForLanguageModeling,
     TrainingArguments,
     Trainer
 )
@@ -43,12 +45,18 @@ class Model:
                                                            cache_dir=args.cache_dir,
                                                            model_max_length=args.max_seq_length,
                                                            use_fast=True)
-        self.model = AutoModelForTokenClassification.from_pretrained(args.model_name_or_path,config=self.config,
-                                                                     cache_dir=args.cache_dir)
+        if args.language_model:
+            self.model = AutoModelForMaskedLM.from_pretrained(args.model_name_or_path, config=self.config,
+                                                              cache_dir=args.cache_dir)
+            self.data_collator_for_lm = DataCollatorForLanguageModeling(tokenizer=self.tokenizer,
+                                                                        mlm_probability=args.mlm_probability)
+        else:
+            self.model = AutoModelForTokenClassification.from_pretrained(args.model_name_or_path, config=self.config,
+                                                                         cache_dir=args.cache_dir)
         if args.zero_shot:
             for param in self.model.named_parameters():
-                if ((args.language_model and "embeddings" in param[0]) or
-                        (not args.language_model and "embeddings" not in param[0])):
+                if ((not args.language_model and "embeddings" in param[0]) or
+                        (args.language_model and "embeddings" not in param[0])):
                         param[1].requires_grad = False
 
         output_path = "./runs"
@@ -71,7 +79,7 @@ class Model:
             weight_decay=args.weight_decay,
             adam_epsilon=args.adam_epsilon,
             save_steps=args.save_steps,
-            evaluate_during_training=args.validate,
+#            evaluate_during_training=args.validate,
             eval_steps=args.eval_steps,
             max_grad_norm=args.max_grad_norm,
             local_rank=args.local_rank,
@@ -106,14 +114,17 @@ class Model:
             }
         return anafora_evaluation
 
-    def train(self, train_dataset, eval_dataset=None):
+    def train(self, train_dataset, eval_dataset=None, masked_lm=False):
+        data_collator = self.train_data_collator
+        if masked_lm:
+            data_collator = self.data_collator_for_lm
         trainer = Trainer(
             model=self.model,
             args=self.args,
             train_dataset=train_dataset,
             eval_dataset=eval_dataset,
             compute_metrics=self.compute_metrics(eval_dataset),
-            data_collator=self.train_data_collator
+            data_collator=data_collator
         )
         trainer.train()
         trainer.save_model()
@@ -196,6 +207,7 @@ if __name__ == "__main__":
     zero_shot = parser.add_argument_group("zero_shot")
     zero_shot.add_argument("--zero_shot", action="store_true", help=" ")
     zero_shot.add_argument("--language_model", action="store_true", help=" ")
+    zero_shot.add_argument("--mlm_probability", default=.15, type=float, help=" ")
 
     args = parser.parse_args()
     train_path = args.train_dir
@@ -208,7 +220,13 @@ if __name__ == "__main__":
     model = Model(args)
     nlp = init_nlp_pipeline()
 
-    if train_path is not None and valid_path is not None:
+    if train_path is not None and args.language_model:
+        train_dataset = create_datasets_for_lm(model, train_path)
+        if len(train_dataset) == 0:
+            raise DatasetEmptyError("train")
+        model.train(train_dataset["train"], masked_lm=True)
+
+    elif train_path is not None and valid_path is not None:
         train_dataset = create_datasets(model, nlp, train_path, train=True)
         if len(train_dataset) == 0:
             raise DatasetEmptyError("train")

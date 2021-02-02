@@ -7,6 +7,7 @@ import torch
 from torch.utils.data import Dataset
 from transformers import InputFeatures
 from spacy.lang.en import English
+from datasets import load_dataset
 
 
 class TimeDataset(Dataset):
@@ -280,3 +281,26 @@ def write_predictions(model, dataset, predictions, out_path):
         os.makedirs(doc_path, exist_ok=True)
         doc_path = os.path.join(doc_path, "%s.TimeNorm.system.completed.xml" % doc_name)
         data.to_file(doc_path)
+
+
+def create_datasets_for_lm(model, dataset_path, train=False, valid=False):
+    text_directory_files = anafora.walk(dataset_path, xml_name_regex=".*((?<![.].{3})|[.]txt)$")
+    text_file_paths = []
+    for text_files in text_directory_files:
+        text_subdir_path, text_doc_name, text_file_names = text_files
+        if len(text_file_names) != 1:
+            raise Exception("Wrong number of text files in %s" % text_subdir_path)
+        text_file_paths.append(os.path.join(dataset_path, text_subdir_path, text_file_names[0]))
+    datasets = load_dataset('text', data_files={'train': text_file_paths})
+
+    def tokenize_function(examples):
+        # Remove empty lines
+        examples["text"] = [line for line in examples["text"] if len(line) > 0 and not line.isspace()]
+        return model.tokenizer(
+            examples["text"],
+            padding="max_length",
+            truncation=True,
+            return_special_tokens_mask=True,
+        )
+
+    return datasets.map(tokenize_function, batched=True)
