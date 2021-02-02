@@ -45,6 +45,12 @@ class Model:
                                                            use_fast=True)
         self.model = AutoModelForTokenClassification.from_pretrained(args.model_name_or_path,config=self.config,
                                                                      cache_dir=args.cache_dir)
+        if args.zero_shot:
+            for param in self.model.named_parameters():
+                if ((args.language_model and "embeddings" in param[0]) or
+                        (not args.language_model and "embeddings" not in param[0])):
+                        param[1].requires_grad = False
+
         output_path = "./runs"
         if args.save_dir is not None:
             output_path = os.path.join(args.save_dir, "results")
@@ -184,6 +190,10 @@ if __name__ == "__main__":
     hyper.add_argument("--gradient_accumulation_steps", default=1, type=int, help=" ")
     hyper.add_argument("--fp16", action="store_true", help=" ")
     hyper.add_argument("--fp16_opt_level", default="O1", type=str, help=" ")
+
+    zero_shot = parser.add_argument_group("zero_shot")
+    zero_shot.add_argument("--zero_shot", action="store_true", help=" ")
+    zero_shot.add_argument("--language_model", action="store_true", help=" ")
 
     args = parser.parse_args()
     train_path = args.train_dir
