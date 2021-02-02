@@ -32,14 +32,14 @@ class Model:
         self.config.pad_labels = args.ignore_index
         self.config.label_pad_id = torch.nn.CrossEntropyLoss().ignore_index
         if args.vocab_file is not None and args.merges_file is not None:
-            self.tokenizer = AutoTokenizer.from_pretrained(args.model_name_or_path, config=self.config,
+            self.tokenizer = AutoTokenizer.from_pretrained(args.tokenizer_name_or_path, config=self.config,
                                                            cache_dir = args.cache_dir,
                                                            vocab_file=args.vocab_file,
                                                            merges_file=args.merges_file,
                                                            model_max_length=args.max_seq_length,
                                                            use_fast=True)
         else:
-            self.tokenizer = AutoTokenizer.from_pretrained(args.model_name_or_path, config=self.config,
+            self.tokenizer = AutoTokenizer.from_pretrained(args.tokenizer_name_or_path, config=self.config,
                                                            cache_dir=args.cache_dir,
                                                            model_max_length=args.max_seq_length,
                                                            use_fast=True)
@@ -153,6 +153,8 @@ if __name__ == "__main__":
                         help="The directory to save the model and the log files.")
     parser.add_argument("-m", "--model", metavar="NAME|PATH", dest="model_name_or_path",
                         default="clulab/roberta-timex-semeval", help="Name or path to a trained model.")
+    parser.add_argument("-k", "--tokenizer", metavar="NAME|PATH", dest="tokenizer_name_or_path",
+                        default=None, help="Name or path to a tokenizer. If None use the model name.")
     parser.add_argument("-c", "--cache", metavar="NAME|PATH", dest="cache_dir",
                         help="Directory in which a downloaded pre-trained model  should be cached.")
     parser.add_argument("-b", "--vocab", metavar="NAME|PATH", dest="vocab_file", default=None,
@@ -190,6 +192,8 @@ if __name__ == "__main__":
     valid_path = args.valid_dir
     predict_path = args.predict_dir
     output_path = args.output_dir
+    if args.tokenizer_name_or_path is None:
+        args.tokenizer_name_or_path = args.model_name_or_path
 
     model = Model(args)
     nlp = init_nlp_pipeline()
