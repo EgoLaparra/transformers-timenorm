@@ -72,7 +72,7 @@ def create_datasets(model, nlp, dataset_path, train=False, valid=False):
             features.extend(doc_features)
             if valid:
                 annotations[text_doc_name] = doc_annotations
-            doc_indices.append((text_doc_name, doc_index, len(features)))
+            doc_indices.append((text_subdir_path, doc_index, len(features)))
     else:
         for text_files in text_directory_files:
             doc_index = len(features)
@@ -82,7 +82,7 @@ def create_datasets(model, nlp, dataset_path, train=False, valid=False):
             text_file_path = os.path.join(dataset_path, text_subdir_path, text_file_names[0])
             doc_features, _ = from_doc_to_features(model, nlp, text_file_path)
             features.extend(doc_features)
-            doc_indices.append((text_doc_name, doc_index, len(features)))
+            doc_indices.append((text_subdir_path, doc_index, len(features)))
     return TimeDataset(doc_indices, features, annotations)
 
 
@@ -256,7 +256,8 @@ def score_predictions(model, dataset, predictions):
     scores_type = evaluate.Scores
     all_scores = defaultdict(lambda: scores_type())
     for doc_index in dataset.doc_indices:
-        doc_name, doc_start, doc_end = doc_index
+        doc_subdir, doc_start, doc_end = doc_index
+        doc_name = os.path.basename(doc_subdir)
         doc_annotations = dataset.annotations[doc_name]
         reference_data = annotation_to_anafora(doc_annotations)
         doc_features = dataset.features[doc_start:doc_end]
@@ -271,12 +272,13 @@ def score_predictions(model, dataset, predictions):
 
 def write_predictions(model, dataset, predictions, out_path):
     for doc_index in dataset.doc_indices:
-        doc_name, doc_start, doc_end = doc_index
+        doc_subdir, doc_start, doc_end = doc_index
+        doc_name = os.path.basename(doc_subdir)
         doc_features = dataset.features[doc_start:doc_end]
         doc_predictions = predictions[doc_start:doc_end]
         doc_predictions = prepare_prediction(doc_predictions)
         data = prediction_to_anafora(model, doc_predictions, doc_features, doc_name)
-        doc_path = os.path.join(out_path, doc_name)
+        doc_path = os.path.join(out_path, doc_subdir)
         os.makedirs(doc_path, exist_ok=True)
         doc_path = os.path.join(doc_path, "%s.TimeNorm.system.completed.xml" % doc_name)
         data.to_file(doc_path)
