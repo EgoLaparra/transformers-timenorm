@@ -1,10 +1,10 @@
 import argparse
 from transformers import (
-    AutoConfig,
-    AutoTokenizer,
-    AutoModelForTokenClassification,
-    TrainingArguments,
-    Trainer
+    T5Config,
+    T5TokenizerFast,
+    T5ForConditionalGeneration,
+    Seq2SeqTrainingArguments,
+    Seq2SeqTrainer
 )
 
 from utils_time import *
@@ -24,34 +24,31 @@ class Model:
     def __init__(self, args):
         bio_mode = not args.io_mode
         labels = read_labels("resources/labels.txt", bio_mode=bio_mode)
-        self.config = AutoConfig.from_pretrained(args.model_name_or_path, cache_dir=args.cache_dir)
-        self.config.num_labels = len(labels)
-        self.config.id2label = dict((idx, label) for idx, label in enumerate(labels))
-        self.config.label2id = dict((label, idx) for idx, label in enumerate(labels))
+        self.config = T5Config.from_pretrained(args.model_name_or_path, cache_dir=args.cache_dir)
         self.config.bio_mode = bio_mode
         self.config.pad_labels = args.ignore_index
         self.config.label_pad_id = torch.nn.CrossEntropyLoss().ignore_index
         if args.vocab_file is not None and args.merges_file is not None:
-            self.tokenizer = AutoTokenizer.from_pretrained(args.tokenizer_name_or_path, config=self.config,
-                                                           cache_dir=args.cache_dir,
-                                                           vocab_file=args.vocab_file,
-                                                           merges_file=args.merges_file,
-                                                           model_max_length=args.max_seq_length,
-                                                           use_fast=True)
+            self.tokenizer = T5TokenizerFast.from_pretrained(args.tokenizer_name_or_path, config=self.config,
+                                                             cache_dir=args.cache_dir,
+                                                             vocab_file=args.vocab_file,
+                                                             merges_file=args.merges_file,
+                                                             model_max_length=args.max_seq_length,
+                                                             use_fast=True)
         else:
-            self.tokenizer = AutoTokenizer.from_pretrained(args.tokenizer_name_or_path, config=self.config,
-                                                           cache_dir=args.cache_dir,
-                                                           model_max_length=args.max_seq_length,
-                                                           use_fast=True)
-        self.model = AutoModelForTokenClassification.from_pretrained(args.model_name_or_path,config=self.config,
-                                                                     cache_dir=args.cache_dir)
+            self.tokenizer = T5TokenizerFast.from_pretrained(args.tokenizer_name_or_path, config=self.config,
+                                                             cache_dir=args.cache_dir,
+                                                             model_max_length=args.max_seq_length,
+                                                             use_fast=True)
+        self.model = T5ForConditionalGeneration.from_pretrained(args.model_name_or_path, config=self.config,
+                                                                cache_dir=args.cache_dir)
         output_path = "./runs"
         if args.save_dir is not None:
             output_path = os.path.join(args.save_dir, "results")
         elif args.output_dir is not None:
             output_path = args.output_dir
         logs_path = os.path.join(args.save_dir, "logs") if args.save_dir is not None else None
-        self.args = TrainingArguments(
+        self.args = Seq2SeqTrainingArguments(
             output_dir=output_path,
             overwrite_output_dir=args.overwrite_output_dir,
             logging_dir=logs_path,
@@ -87,6 +84,7 @@ class Model:
         batch = dict()
         batch["input_ids"] = torch.stack([f.input_ids for f in features])
         batch["attention_mask"] = torch.stack([f.attention_mask for f in features])
+        batch["decoder_input_ids"] = torch.stack([f.decoder_input_ids for f in features])
         return batch
 
     @staticmethod
@@ -101,7 +99,7 @@ class Model:
         return anafora_evaluation
 
     def train(self, train_dataset, eval_dataset=None):
-        trainer = Trainer(
+        trainer = Seq2SeqTrainer(
             model=self.model,
             args=self.args,
             train_dataset=train_dataset,
@@ -114,7 +112,7 @@ class Model:
         self.tokenizer.save_pretrained(self.args.output_dir)
 
     def evaluate(self, dataset):
-        trainer = Trainer(
+        trainer = Seq2SeqTrainer(
             model=self.model,
             args=self.args,
             eval_dataset=dataset,
@@ -126,12 +124,17 @@ class Model:
         trainer.evaluate()
 
     def predict(self, dataset):
-        trainer = Trainer(
+        trainer = Seq2SeqTrainer(
             model=self.model,
             args=self.args,
             data_collator=self.test_data_collator
         )
         prediction, _, _ = trainer.predict(dataset)
+        return prediction
+
+    def generate(self, dataset):
+        input_ids = torch.stack([f.input_ids for f in dataset.features])
+        prediction = self.model.generate(input_ids=input_ids)
         return prediction
 
 
@@ -226,7 +229,7 @@ if __name__ == "__main__":
         test_dataset = create_datasets(model, nlp, predict_path)
         if len(test_dataset) == 0:
             raise DatasetEmptyError("text")
-        prediction = model.predict(test_dataset)
+        prediction = model.generate(test_dataset)
         write_predictions(model, test_dataset, prediction, output_path)
 
     else:
