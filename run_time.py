@@ -62,7 +62,7 @@ class Model:
             weight_decay=args.weight_decay,
             adam_epsilon=args.adam_epsilon,
             save_steps=args.save_steps,
-            evaluation_strategy="steps",
+            evaluation_strategy="steps" if args.validate else "no",
             eval_steps=args.eval_steps,
             max_grad_norm=args.max_grad_norm,
             local_rank=args.local_rank,
