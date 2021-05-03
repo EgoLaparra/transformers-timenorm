@@ -164,7 +164,7 @@ def from_doc_to_features(model, nlp, text_path, anafora_path=None, train=False):
                     start_open = None
                 elif start_open is not None:
                     labels[token_idx] = bio_annotation(model, annotations[start_open][1], "I-")
-                elif start in annotations:
+                elif start in annotations and input_ids[token_idx] != 3:
                     labels[token_idx] = bio_annotation(model, annotations[start][1], "B-")
                     start_open = start
                 # Check if the annotation ends in this token and close it
