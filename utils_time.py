@@ -1,4 +1,5 @@
 import os
+import re
 from collections import defaultdict
 import anafora
 from anafora import evaluate
@@ -38,6 +39,25 @@ def read_labels(path, bio_mode=True):
             labels.extend([BI + label for label in labels_file.read().split("\n") for BI in ["B-", "I-"]])
         else:
             labels.extend([label for label in labels_file.read().split("\n")])
+    return labels
+
+
+def read_t5_labels(path, tokenizer, bio_mode=True):
+    start_tokens = []
+    for token in sorted(tokenizer.get_vocab().keys()):
+        if ord(token[0]) == 9601:
+            start_tokens.append(token)
+    start_tokens = iter(start_tokens)
+    next(start_tokens)
+    labels = dict()
+    labels["O"] = next(start_tokens)[1:]
+    with open(path) as labels_file:
+        if bio_mode:
+            labels.update({BI + label: next(start_tokens)[1:]
+                           for label in labels_file.read().split("\n") for BI in ["B-", "I-"]})
+        else:
+            labels.update({label: next(start_tokens)[1:]
+                           for label in labels_file.read().split("\n")})
     return labels
 
 
@@ -88,9 +108,10 @@ def create_datasets(model, nlp, dataset_path, train=False, valid=False):
 
 def bio_annotation(model, annotation, prefix):
     if not model.config.bio_mode:
-        return annotation
+        label = annotation
     else:
-        return prefix + annotation
+        label = prefix + annotation
+    return model.config.label2token[label] if model.config.label_as_token else label
 
 
 def inner_subword(input_data, sent_idx, token_idx):
@@ -139,7 +160,8 @@ def from_doc_to_features(model, nlp, text_path, anafora_path=None, train=False):
         offset_mapping = input_data["offset_mapping"][sent_idx]
         labels = None
         if train:
-            labels = ["O"] * attention_mask.sum()
+            out_label = model.config.label2token["O"] if model.config.label_as_token else "O"
+            labels = [out_label] * attention_mask.sum()
 
         for token_idx in range(len(prefix_tokens)):
             offset_mapping[token_idx][0] = 0
@@ -213,7 +235,7 @@ def add_entity(data, doc_name, label, offset):
         num_entities = len(data.xml.findall("annotations/entity"))
         entity.id = "%s@%s" % (num_entities, doc_name)
         entity.spans = ((offset[0], offset[1]),)
-        entity.type = label.replace("<", "").replace(">", "").replace("B-", "")
+        entity.type = label.replace("B-", "")
         data.annotations.append(entity)
 
 
@@ -227,29 +249,44 @@ def annotation_to_anafora(annotations, doc_name="dummy"):
 
 def prediction_to_anafora(model, labels, features, doc_name="dummy"):
     data = anafora.AnaforaData()
-    out_id = model.tokenizer.convert_tokens_to_ids("<O>")
+    prefix = "timenorm: "
+    prefix_tokens_len = len(model.tokenizer.encode(prefix)[:-1])
     for sent_labels, sent_features in zip(labels, features):
-        # Remove padding and <s> </s>
+        sent_string = sent_features.input_ids
         special_mask = model.tokenizer.get_special_tokens_mask(sent_features.input_ids,
                                                                already_has_special_tokens=True)
         non_specials = np.count_nonzero(np.array(special_mask) == 0)
-        sent_labels = sent_labels[1: non_specials + 1]
-        sent_offsets = sent_features.offset_mapping[1: non_specials + 1]
+        sent_string = sent_string[prefix_tokens_len: non_specials]
+        sent_offsets = sent_features.offset_mapping[prefix_tokens_len: non_specials]
+        sent_string = model.tokenizer.convert_ids_to_tokens(sent_string)
+
+        sent_labels = model.tokenizer.convert_tokens_to_string(
+            model.tokenizer.convert_ids_to_tokens(sent_labels)
+        )
+        sent_labels = re.sub(r'([^^])(<)',r'\1 \2', sent_labels).split(" ")
+        sent_labels = sent_labels[2 + prefix_tokens_len:]
+        sent_labels = sent_labels[:len(sent_string)]
+
+        print(sent_string)
+        print(sent_labels)
 
         previous_label = 0
         previous_offset = [None, None]
         for token_label, token_offset in zip(sent_labels, sent_offsets):
+            token_label = model.config.label2id[token_label] if token_label in model.config.label2id else 0
             if token_offset[0] != token_offset[1]:
-                entity_label = model.tokenizer.convert_ids_to_tokens(previous_label) if previous_label > out_id else None
+                entity_label = model.config.id2label[previous_label] if previous_label > 0 else None
                 new_word = token_offset[0] != previous_offset[1] if model.config.pad_labels else True
                 label_diff = token_label - previous_label
                 if is_b_label(token_label, label_diff, model.config.bio_mode):
+                    entity_label = model.config.token2label[entity_label] if model.config.label_as_token else entity_label
                     add_entity(data, doc_name, entity_label, previous_offset)
                     previous_label = token_label
                     previous_offset = token_offset
                 elif is_i_label(token_label, label_diff, new_word, model.config.bio_mode):
                     previous_offset[1] = token_offset[1]
                 elif previous_label > 0:
+                    entity_label = model.config.token2label[entity_label] if model.config.label_as_token else entity_label
                     add_entity(data, doc_name, entity_label, previous_offset)
                     previous_label = 0
                     previous_offset = [None, None]

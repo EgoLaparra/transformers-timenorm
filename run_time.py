@@ -22,12 +22,7 @@ class DatasetEmptyError(Exception):
 class Model:
 
     def __init__(self, args):
-        bio_mode = not args.io_mode
-        labels = read_labels("resources/labels.txt", bio_mode=bio_mode)
         self.config = T5Config.from_pretrained(args.model_name_or_path, cache_dir=args.cache_dir)
-        self.config.bio_mode = bio_mode
-        self.config.pad_labels = args.ignore_index
-        self.config.label_pad_id = torch.nn.CrossEntropyLoss().ignore_index
         if args.vocab_file is not None and args.merges_file is not None:
             self.tokenizer = T5TokenizerFast.from_pretrained(args.tokenizer_name_or_path, config=self.config,
                                                              cache_dir=args.cache_dir,
@@ -36,10 +31,22 @@ class Model:
                                                              model_max_length=args.max_seq_length,
                                                              use_fast=True)
         else:
-            self.tokenizer = T5TokenizerFast.from_pretrained(args.tokenizer_name_or_path, config=self.config,
+            self.tokenizer = T5TokenizerFast.from_pretrained("t5-small", config=self.config,
                                                              cache_dir=args.cache_dir,
                                                              model_max_length=args.max_seq_length,
                                                              use_fast=True)
+        bio_mode = not args.io_mode
+        self.config.label_as_token = args.label_as_token
+        if args.label_as_token:
+            self.config.label2token = read_t5_labels("resources/labels.txt", self.tokenizer, bio_mode=bio_mode)
+            self.config.token2label = dict((token, label) for label, token in self.config.label2token.items())
+        else:
+            labels = read_labels("resources/labels.txt", bio_mode=bio_mode)
+            self.config.id2label = dict((idx, label) for idx, label in enumerate(labels))
+            self.config.label2id = dict((label, idx) for idx, label in enumerate(labels))
+        self.config.bio_mode = bio_mode
+        self.config.pad_labels = args.ignore_index
+        self.config.label_pad_id = torch.nn.CrossEntropyLoss().ignore_index
         self.model = T5ForConditionalGeneration.from_pretrained(args.model_name_or_path, config=self.config,
                                                                 cache_dir=args.cache_dir)
         output_path = "./runs"
@@ -134,7 +141,7 @@ class Model:
 
     def generate(self, dataset):
         input_ids = torch.stack([f.input_ids for f in dataset.features])
-        prediction = self.model.generate(input_ids=input_ids)
+        prediction = self.model.generate(input_ids=input_ids, max_length=500)
         return prediction
 
 
@@ -166,6 +173,8 @@ if __name__ == "__main__":
                         help="Name or path to a merges file.")
     parser.add_argument("-i", "--io", dest="io_mode", action="store_true",
                         help="Use IO labelling instead of BIO.")
+    parser.add_argument("-l", "--as_token", dest="label_as_token", action="store_true",
+                        help="Translate label to T5 starting tokens.")
     parser.add_argument("-g", "--ignore", dest="ignore_index", action="store_true",
                         help="Use ignore index, padded labels do not contribute to the loss.")
 
